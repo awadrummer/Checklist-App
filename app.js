@@ -146,6 +146,14 @@ const ChecklistApp = () => {
   const [draggedItem, setDraggedItem] = useState(null);
   const [draggedChecklist, setDraggedChecklist] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
+  const [editingChecklistId, setEditingChecklistId] = useState(null);
+  const [editingChecklistName, setEditingChecklistName] = useState('');
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncMode, setSyncMode] = useState('save');
+  const [syncId, setSyncId] = useState('');
+  const [syncPassphrase, setSyncPassphrase] = useState('');
+  const [syncStatus, setSyncStatus] = useState('');
+  const [showExportImportModal, setShowExportImportModal] = useState(false);
 
   // Initialize app
   useEffect(() => {
@@ -278,6 +286,35 @@ const ChecklistApp = () => {
       setChecklists(prev => prev.map(cl => cl.id === checklistId ? updatedChecklist : cl));
     } catch (error) {
       console.error('Error updating checklist:', error);
+    }
+  };
+
+  const startEditingChecklistName = (checklist) => {
+    setEditingChecklistId(checklist.id);
+    setEditingChecklistName(checklist.name);
+  };
+
+  const saveChecklistName = async (checklistId) => {
+    if (!editingChecklistName.trim()) {
+      cancelEditingChecklistName();
+      return;
+    }
+    
+    await updateChecklist(checklistId, { name: editingChecklistName.trim() });
+    setEditingChecklistId(null);
+    setEditingChecklistName('');
+  };
+
+  const cancelEditingChecklistName = () => {
+    setEditingChecklistId(null);
+    setEditingChecklistName('');
+  };
+
+  const handleChecklistNameKeyPress = (e, checklistId) => {
+    if (e.key === 'Enter') {
+      saveChecklistName(checklistId);
+    } else if (e.key === 'Escape') {
+      cancelEditingChecklistName();
     }
   };
 
@@ -768,6 +805,238 @@ const ChecklistApp = () => {
     handleItemDrop(e, null, checklistId);
   };
 
+  // Cloud Sync Functions
+  // Auto-detect API base URL based on current domain
+  const API_BASE = window.location.origin + '/api';
+  const REQUIRED_PASSPHRASE = 'supersecretpassphrase1234';
+  
+  // For local development, you can override:
+  // const API_BASE = 'http://localhost:8080/api';
+
+  const saveToCloud = async () => {
+    if (syncPassphrase !== REQUIRED_PASSPHRASE) {
+      setSyncStatus('❌ Invalid passphrase');
+      return;
+    }
+
+    if (!syncId.trim()) {
+      setSyncStatus('❌ Please enter a unique ID');
+      return;
+    }
+
+    setSyncStatus('💾 Saving...');
+
+    try {
+      // Prepare data for saving
+      const data = {
+        checklists,
+        items,
+        archive,
+        lastUpdated: new Date().toISOString(),
+        version: '1.0'
+      };
+
+      const response = await fetch(`${API_BASE}/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: syncId.trim(),
+          data: data
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setSyncStatus('✅ Saved successfully!');
+          localStorage.setItem('lastSyncId', syncId.trim());
+          setTimeout(() => {
+            setShowSyncModal(false);
+            setSyncStatus('');
+            setSyncId('');
+            setSyncPassphrase('');
+          }, 2000);
+        } else {
+          setSyncStatus(`❌ ${result.message || 'Save failed'}`);
+        }
+      } else {
+        setSyncStatus('❌ Network error');
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      setSyncStatus('❌ Save failed');
+    }
+  };
+
+  const loadFromCloud = async () => {
+    if (!syncId.trim()) {
+      setSyncStatus('❌ Please enter a unique ID');
+      return;
+    }
+
+    setSyncStatus('📥 Loading...');
+
+    try {
+      const response = await fetch(`${API_BASE}/load/${encodeURIComponent(syncId.trim())}`);
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          // Load data into app
+          const { checklists: cloudChecklists, items: cloudItems, archive: cloudArchive } = result.data;
+          
+          if (cloudChecklists) setChecklists(cloudChecklists);
+          if (cloudItems) setItems(cloudItems);
+          if (cloudArchive) setArchive(cloudArchive);
+          
+          // Save to local storage as well
+          try {
+            for (const checklist of cloudChecklists || []) {
+              await dbOperation('checklists', 'put', checklist);
+            }
+            for (const item of cloudItems || []) {
+              await dbOperation('items', 'put', item);
+            }
+            for (const archiveItem of cloudArchive || []) {
+              await dbOperation('archive', 'put', archiveItem);
+            }
+          } catch (dbError) {
+            console.error('Local DB update error:', dbError);
+          }
+          
+          setSyncStatus('✅ Loaded successfully!');
+          localStorage.setItem('lastSyncId', syncId.trim());
+          
+          setTimeout(() => {
+            setShowSyncModal(false);
+            setSyncStatus('');
+            setSyncId('');
+            setSyncPassphrase('');
+          }, 2000);
+        } else {
+          setSyncStatus('❌ ID not found');
+        }
+      } else {
+        setSyncStatus('❌ Network error');
+      }
+    } catch (error) {
+      console.error('Load error:', error);
+      setSyncStatus('❌ Load failed');
+    }
+  };
+
+  const openSyncModal = (mode) => {
+    setSyncMode(mode);
+    setShowSyncModal(true);
+    setSyncStatus('');
+    // Pre-fill last used ID if available
+    const lastId = localStorage.getItem('lastSyncId');
+    if (lastId) {
+      setSyncId(lastId);
+    }
+  };
+
+  // Local Export/Import Functions
+  const exportData = () => {
+    const data = {
+      checklists,
+      items,
+      archive,
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+      appName: 'Checklist PWA'
+    };
+
+    const dataStr = JSON.stringify(data, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `checklist-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    setShowExportImportModal(false);
+  };
+
+  const importData = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result);
+        
+        // Validate data structure
+        if (!importedData.checklists || !importedData.items || !importedData.archive) {
+          alert('❌ Invalid backup file format');
+          return;
+        }
+
+        const confirmReplace = confirm(
+          'This will replace all your current checklists with the imported data. ' +
+          'Make sure you have a backup if needed. Continue?'
+        );
+        
+        if (!confirmReplace) return;
+
+        // Clear existing data
+        const allChecklists = await dbOperation('checklists', 'getAll');
+        const allItems = await dbOperation('items', 'getAll');
+        const allArchive = await dbOperation('archive', 'getAll');
+        
+        for (const checklist of allChecklists) {
+          await dbOperation('checklists', 'delete', checklist.id);
+        }
+        for (const item of allItems) {
+          await dbOperation('items', 'delete', item.id);
+        }
+        for (const archiveItem of allArchive) {
+          await dbOperation('archive', 'delete', archiveItem.id);
+        }
+
+        // Import new data
+        for (const checklist of importedData.checklists) {
+          await dbOperation('checklists', 'add', checklist);
+        }
+        for (const item of importedData.items) {
+          await dbOperation('items', 'add', item);
+        }
+        for (const archiveItem of importedData.archive) {
+          await dbOperation('archive', 'add', archiveItem);
+        }
+
+        // Update state
+        setChecklists(importedData.checklists);
+        setItems(importedData.items);
+        setArchive(importedData.archive);
+        
+        // Set up reminders for imported items
+        importedData.items.forEach(item => {
+          if (item.dueDate && !item.completed) {
+            setupReminder(item);
+          }
+        });
+
+        setShowExportImportModal(false);
+        alert('✅ Data imported successfully!');
+        
+      } catch (error) {
+        console.error('Import error:', error);
+        alert('❌ Failed to import data. Please check the file format.');
+      }
+    };
+    
+    reader.readAsText(file);
+    event.target.value = ''; // Reset file input
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -795,12 +1064,32 @@ const ChecklistApp = () => {
 
         {currentView === 'active' && (
           <div>
-            <button 
-              className="btn" 
-              onClick={() => setShowNewChecklistModal(true)}
-            >
-              ➕ New Checklist
-            </button>
+            <div style={{display: 'flex', gap: '6px', marginBottom: '10px'}}>
+              <button 
+                className="btn" 
+                onClick={() => setShowNewChecklistModal(true)}
+              >
+                ➕ New Checklist
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => openSyncModal('save')}
+              >
+                ☁️ Save
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => openSyncModal('load')}
+              >
+                📥 Load
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowExportImportModal(true)}
+              >
+                📁 Backup
+              </button>
+            </div>
 
             <div className="checklist-list">
               {checklists.length === 0 ? (
@@ -832,7 +1121,25 @@ const ChecklistApp = () => {
                               className="color-indicator" 
                               style={{backgroundColor: checklist.color || '#4a9eff'}}
                             ></div>
-                            <h3 className="checklist-title">{checklist.name}</h3>
+                            {editingChecklistId === checklist.id ? (
+                              <input
+                                type="text"
+                                className="checklist-name-input"
+                                value={editingChecklistName}
+                                onChange={(e) => setEditingChecklistName(e.target.value)}
+                                onBlur={() => saveChecklistName(checklist.id)}
+                                onKeyDown={(e) => handleChecklistNameKeyPress(e, checklist.id)}
+                                autoFocus
+                              />
+                            ) : (
+                              <h3 
+                                className="checklist-title editable"
+                                onClick={() => startEditingChecklistName(checklist)}
+                                title="Click to edit name"
+                              >
+                                {checklist.name}
+                              </h3>
+                            )}
                           </div>
                           <div className="checklist-stats">
                             {stats.total} items • {stats.completed} completed
@@ -930,6 +1237,33 @@ const ChecklistApp = () => {
             setShowNewItemModal(false);
             setEditingItem(null);
           }}
+        />
+      )}
+      
+      {showSyncModal && (
+        <SyncModal 
+          mode={syncMode}
+          syncId={syncId}
+          setSyncId={setSyncId}
+          syncPassphrase={syncPassphrase}
+          setSyncPassphrase={setSyncPassphrase}
+          syncStatus={syncStatus}
+          onSave={saveToCloud}
+          onLoad={loadFromCloud}
+          onClose={() => {
+            setShowSyncModal(false);
+            setSyncStatus('');
+            setSyncId('');
+            setSyncPassphrase('');
+          }}
+        />
+      )}
+      
+      {showExportImportModal && (
+        <ExportImportModal 
+          onExport={exportData}
+          onImport={importData}
+          onClose={() => setShowExportImportModal(false)}
         />
       )}
     </div>
@@ -1315,6 +1649,163 @@ const NewItemModal = ({ item, onSave, onClose }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// Export/Import Modal Component
+const ExportImportModal = ({ onExport, onImport, onClose }) => {
+  const fileInputRef = React.useRef();
+  
+  return (
+    <div className="modal">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h2 className="modal-title">📁 Local Backup</h2>
+          <button className="close-btn" onClick={onClose}>×</button>
+        </div>
+        
+        <div style={{marginBottom: '15px'}}>
+          <h4 style={{fontSize: '0.7rem', marginBottom: '8px', color: 'var(--text-primary)'}}>
+            📤 Export Data
+          </h4>
+          <p style={{fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '8px'}}>
+            Download all your checklists as a backup file.
+          </p>
+          <button className="btn" onClick={onExport}>
+            📥 Download Backup
+          </button>
+        </div>
+        
+        <div style={{marginBottom: '15px'}}>
+          <h4 style={{fontSize: '0.7rem', marginBottom: '8px', color: 'var(--text-primary)'}}>
+            📥 Import Data
+          </h4>
+          <p style={{fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '8px'}}>
+            Replace all current data with a backup file.
+          </p>
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            accept=".json"
+            onChange={onImport}
+            style={{display: 'none'}}
+          />
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📂 Choose File
+          </button>
+        </div>
+        
+        <div style={{padding: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', fontSize: '0.5rem'}}>
+          <strong>⚠️ Important:</strong><br/>
+          • Export creates a local backup file<br/>
+          • Import replaces ALL current data<br/>
+          • Files work on any device with this app
+        </div>
+        
+        <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px'}}>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Sync Modal Component
+const SyncModal = ({ 
+  mode, 
+  syncId, 
+  setSyncId, 
+  syncPassphrase, 
+  setSyncPassphrase, 
+  syncStatus, 
+  onSave, 
+  onLoad, 
+  onClose 
+}) => {
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (mode === 'save') {
+      onSave();
+    } else {
+      onLoad();
+    }
+  };
+  
+  return (
+    <div className="modal">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h2 className="modal-title">
+            {mode === 'save' ? '☁️ Save to Cloud' : '📥 Load from Cloud'}
+          </h2>
+          <button className="close-btn" onClick={onClose}>×</button>
+        </div>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="input-group">
+            <label>Unique ID *</label>
+            <input 
+              type="text" 
+              className="input"
+              value={syncId}
+              onChange={(e) => setSyncId(e.target.value)}
+              placeholder="Enter a unique identifier"
+              autoFocus
+              required
+            />
+            <small style={{color: 'var(--text-muted)', fontSize: '0.5rem'}}>
+              Choose a unique ID that others won't guess (e.g., myname-lists-2024)
+            </small>
+          </div>
+          
+          {mode === 'save' && (
+            <div className="input-group">
+              <label>Passphrase *</label>
+              <input 
+                type="password" 
+                className="input"
+                value={syncPassphrase}
+                onChange={(e) => setSyncPassphrase(e.target.value)}
+                placeholder="Enter the required passphrase"
+                required
+              />
+              <small style={{color: 'var(--text-muted)', fontSize: '0.5rem'}}>
+                Enter the configured passphrase
+              </small>
+            </div>
+          )}
+          
+          {syncStatus && (
+            <div className="sync-status" style={{margin: '8px 0', fontSize: '0.6rem'}}>
+              {syncStatus}
+            </div>
+          )}
+          
+          <div style={{display: 'flex', gap: '6px', justifyContent: 'flex-end'}}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn">
+              {mode === 'save' ? 'Save' : 'Load'}
+            </button>
+          </div>
+        </form>
+        
+        <div style={{marginTop: '10px', padding: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', fontSize: '0.5rem'}}>
+          <strong>How it works:</strong><br/>
+          {mode === 'save' ? (
+            <>Save your checklists with a unique ID. Use the same ID on other devices to load your data.</>  
+          ) : (
+            <>Enter the unique ID you used when saving to load your checklists.</>  
+          )}
+        </div>
       </div>
     </div>
   );
