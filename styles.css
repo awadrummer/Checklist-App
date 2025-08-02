@@ -46,9 +46,9 @@ body {
 }
 
 .app {
-  max-width: 800px;
+  max-width: 520px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 10px;
   min-height: 100vh;
 }
 
@@ -56,13 +56,13 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
   border-bottom: 2px solid var(--border);
 }
 
 .header h1 {
-  font-size: 2rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: var(--accent-primary);
 }
@@ -71,10 +71,10 @@ body {
   background: var(--bg-secondary);
   border: 2px solid var(--border);
   color: var(--text-primary);
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.7rem;
   transition: all 0.2s ease;
 }
 
@@ -84,16 +84,16 @@ body {
 }
 
 .checklist-list {
-  margin-bottom: 30px;
+  margin-bottom: 15px;
 }
 
 .checklist-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 8px var(--shadow);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 13px;
+  box-shadow: 0 1px 4px var(--shadow);
   transition: all 0.2s ease;
 }
 
@@ -106,17 +106,17 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 8px;
 }
 
 .checklist-title {
-  font-size: 1.5rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .checklist-stats {
-  font-size: 0.9rem;
+  font-size: 0.6rem;
   color: var(--text-secondary);
 }
 
@@ -124,15 +124,15 @@ body {
   background: var(--accent-primary);
   color: white;
   border: none;
-  padding: 10px 20px;
-  border-radius: 8px;
+  padding: 5px 10px;
+  border-radius: 5px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.6rem;
   font-weight: 500;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .btn:hover {
@@ -141,8 +141,8 @@ body {
 }
 
 .btn-small {
-  padding: 6px 12px;
-  font-size: 0.8rem;
+  padding: 3px 6px;
+  font-size: 0.55rem;
 }
 
 .btn-secondary {
@@ -163,7 +163,7 @@ body {
 }
 
 .input-group {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .input-group label {
@@ -175,12 +175,12 @@ body {
 
 .input, .textarea, .select {
   width: 100%;
-  padding: 12px;
-  border: 2px solid var(--border);
-  border-radius: 8px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 1rem;
+  font-size: 0.65rem;
   transition: border-color 0.2s ease;
 }
 
@@ -191,18 +191,18 @@ body {
 
 .textarea {
   resize: vertical;
-  min-height: 80px;
+  min-height: 52px;
 }
 
 .checkbox-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 15px;
+  gap: 6px;
+  padding: 8px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 10px;
+  border-radius: 5px;
+  margin-bottom: 5px;
   transition: all 0.2s ease;
 }
 
@@ -215,8 +215,8 @@ body {
 }
 
 .checkbox {
-  width: 20px;
-  height: 20px;
+  width: 13px;
+  height: 13px;
   accent-color: var(--success);
   cursor: pointer;
 }
@@ -228,8 +228,9 @@ body {
 
 .item-title {
   font-weight: 500;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   word-wrap: break-word;
+  font-size: 0.7rem;
 }
 
 .item-title.completed {
@@ -238,29 +239,29 @@ body {
 }
 
 .item-notes {
-  font-size: 0.9rem;
+  font-size: 0.6rem;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   word-wrap: break-word;
 }
 
 .item-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  font-size: 0.8rem;
+  gap: 5px;
+  font-size: 0.5rem;
   color: var(--text-muted);
 }
 
 .meta-tag {
   background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .item-actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   align-items: flex-start;
 }
 
@@ -280,10 +281,10 @@ body {
 
 .modal-content {
   background: var(--bg-secondary);
-  border-radius: 12px;
-  padding: 30px;
+  border-radius: 8px;
+  padding: 15px;
   width: 100%;
-  max-width: 500px;
+  max-width: 325px;
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -292,21 +293,21 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .modal-title {
-  font-size: 1.5rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
 .close-btn {
   background: none;
   border: none;
-  font-size: 1.5rem;
+  font-size: 1rem;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 5px;
+  padding: 3px;
 }
 
 .close-btn:hover {
@@ -316,27 +317,28 @@ body {
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  gap: 8px;
 }
 
 .tab-container {
-  margin-bottom: 30px;
+  margin-bottom: 15px;
 }
 
 .tab-buttons {
   display: flex;
-  border-bottom: 2px solid var(--border);
-  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
 }
 
 .tab-button {
   background: none;
   border: none;
-  padding: 12px 20px;
+  padding: 6px 10px;
   cursor: pointer;
   color: var(--text-secondary);
   font-weight: 500;
-  border-bottom: 2px solid transparent;
+  font-size: 0.65rem;
+  border-bottom: 1px solid transparent;
   transition: all 0.2s ease;
 }
 
@@ -351,29 +353,29 @@ body {
 
 .empty-state {
   text-align: center;
-  padding: 40px 20px;
+  padding: 20px 10px;
   color: var(--text-muted);
 }
 
 .empty-state h3 {
-  margin-bottom: 10px;
-  font-size: 1.2rem;
+  margin-bottom: 5px;
+  font-size: 0.8rem;
 }
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
   .app {
-    padding: 15px;
+    padding: 8px;
   }
   
   .header {
     flex-direction: column;
-    gap: 15px;
+    gap: 8px;
     text-align: center;
   }
   
   .header h1 {
-    font-size: 1.5rem;
+    font-size: 1.1rem;
   }
   
   .form-row {
@@ -381,26 +383,38 @@ body {
   }
   
   .modal-content {
-    padding: 20px;
+    padding: 10px;
+    max-width: 280px;
   }
   
   .checklist-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: 5px;
+  }
+  
+  .checklist-actions {
+    align-self: stretch;
+    justify-content: flex-end;
+  }
+  
+  /* Disable drag handles on mobile for better touch experience */
+  .checklist-card::before,
+  .checkbox-item::before {
+    display: none;
   }
   
   .item-actions {
-    flex-direction: column;
+    flex-direction: row;
   }
   
   .btn {
-    padding: 12px 16px;
-    font-size: 1rem;
+    padding: 6px 8px;
+    font-size: 0.6rem;
   }
   
   .checkbox-item {
-    padding: 12px;
+    padding: 6px;
   }
   
   .tab-buttons {
@@ -409,20 +423,199 @@ body {
   }
 }
 
+/* Color Picker Styles */
+.color-picker {
+  position: relative;
+  display: inline-block;
+}
+
+.color-picker-trigger {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.color-picker-trigger:hover {
+  border-color: var(--accent-primary);
+  transform: scale(1.1);
+}
+
+.color-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.color-option {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.color-option:hover {
+  transform: scale(1.2);
+  border-color: var(--text-primary);
+}
+
+.color-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+
+.checklist-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.checklist-items {
+  position: relative;
+  min-height: 40px;
+  transition: all 0.2s ease;
+}
+
+/* Drag and Drop Styles */
+.checklist-card {
+  transition: all 0.2s ease;
+  cursor: grab;
+}
+
+.checklist-card:active {
+  cursor: grabbing;
+}
+
+.checklist-card.drag-over {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px var(--accent-primary);
+}
+
+.checkbox-item {
+  cursor: grab;
+  transition: all 0.2s ease;
+}
+
+.checkbox-item:active {
+  cursor: grabbing;
+}
+
+.checkbox-item.drag-over {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  transform: translateX(4px);
+  box-shadow: 2px 0 8px var(--accent-primary);
+}
+
+.checklist-items.drag-over-drop-zone {
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  border-radius: 4px;
+}
+
+.checklist-items.drag-over-drop-zone::after {
+  content: 'Drop item here';
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.5rem;
+  color: var(--accent-primary);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--accent-primary);
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* Drag handle visual cue */
+.checklist-card::before {
+  content: '⋮⋮';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  line-height: 0.8;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.checklist-card:hover::before {
+  opacity: 0.5;
+}
+
+.checkbox-item::before {
+  content: '⋮⋮';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+  color: var(--text-muted);
+  font-size: 0.5rem;
+  line-height: 0.6;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.checkbox-item:hover::before {
+  opacity: 0.5;
+}
+
+/* Ensure proper positioning */
+.checklist-card {
+  position: relative;
+}
+
+.checkbox-item {
+  position: relative;
+}
+
 /* Touch optimizations for mobile */
 @media (pointer: coarse) {
   .btn {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 32px;
+    min-width: 32px;
   }
   
   .checkbox {
-    width: 24px;
-    height: 24px;
+    width: 18px;
+    height: 18px;
   }
   
   .close-btn {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: 32px;
+    min-width: 32px;
+  }
+  
+  .color-picker-trigger {
+    min-height: 32px;
+    min-width: 32px;
   }
 }

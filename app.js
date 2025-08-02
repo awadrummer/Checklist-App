@@ -2,7 +2,7 @@ const { useState, useEffect, useCallback } = React;
 
 // IndexedDB helper functions
 const DB_NAME = 'ChecklistDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const initDB = () => {
   return new Promise((resolve, reject) => {
@@ -17,12 +17,35 @@ const initDB = () => {
       if (!db.objectStoreNames.contains('checklists')) {
         const checklistStore = db.createObjectStore('checklists', { keyPath: 'id' });
         checklistStore.createIndex('name', 'name', { unique: false });
+        checklistStore.createIndex('color', 'color', { unique: false });
+        checklistStore.createIndex('order', 'order', { unique: false });
       }
       
       if (!db.objectStoreNames.contains('items')) {
         const itemStore = db.createObjectStore('items', { keyPath: 'id' });
         itemStore.createIndex('checklistId', 'checklistId', { unique: false });
         itemStore.createIndex('dueDate', 'dueDate', { unique: false });
+        itemStore.createIndex('order', 'order', { unique: false });
+      }
+      
+      // Handle database upgrades
+      if (event.oldVersion < 2) {
+        // Add order field to existing records
+        const transaction = event.target.transaction;
+        
+        if (db.objectStoreNames.contains('checklists')) {
+          const checklistStore = transaction.objectStore('checklists');
+          if (!checklistStore.indexNames.contains('order')) {
+            checklistStore.createIndex('order', 'order', { unique: false });
+          }
+        }
+        
+        if (db.objectStoreNames.contains('items')) {
+          const itemStore = transaction.objectStore('items');
+          if (!itemStore.indexNames.contains('order')) {
+            itemStore.createIndex('order', 'order', { unique: false });
+          }
+        }
       }
       
       if (!db.objectStoreNames.contains('archive')) {
@@ -120,6 +143,9 @@ const ChecklistApp = () => {
   const [selectedChecklist, setSelectedChecklist] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [reminderIntervals, setReminderIntervals] = useState({});
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [draggedChecklist, setDraggedChecklist] = useState(null);
+  const [dragOverTarget, setDragOverTarget] = useState(null);
 
   // Initialize app
   useEffect(() => {
@@ -150,8 +176,23 @@ const ChecklistApp = () => {
         dbOperation('archive', 'getAll')
       ]);
       
-      setChecklists(checklistsData || []);
-      setItems(itemsData || []);
+      // Sort by order, fallback to creation date
+      const sortedChecklists = (checklistsData || []).sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) {
+          return a.order - b.order;
+        }
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      });
+      
+      const sortedItems = (itemsData || []).sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) {
+          return a.order - b.order;
+        }
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      });
+      
+      setChecklists(sortedChecklists);
+      setItems(sortedItems);
       setArchive(archiveData || []);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -165,10 +206,11 @@ const ChecklistApp = () => {
     document.documentElement.setAttribute('data-theme', newTheme);
   };
 
-  const createChecklist = async (name) => {
+  const createChecklist = async (checklistData) => {
     const newChecklist = {
       id: generateId(),
-      name,
+      name: checklistData.name || checklistData,
+      color: checklistData.color || '#4a9eff',
       createdAt: new Date().toISOString()
     };
     
@@ -178,6 +220,64 @@ const ChecklistApp = () => {
       setShowNewChecklistModal(false);
     } catch (error) {
       console.error('Error creating checklist:', error);
+    }
+  };
+
+  const duplicateChecklist = async (originalChecklist) => {
+    const maxOrder = checklists.reduce((max, cl) => Math.max(max, cl.order || 0), 0);
+    const newChecklist = {
+      ...originalChecklist,
+      id: generateId(),
+      name: `${originalChecklist.name} (Copy)`,
+      order: maxOrder + 1,
+      createdAt: new Date().toISOString()
+    };
+    
+    try {
+      await dbOperation('checklists', 'add', newChecklist);
+      
+      // Duplicate all items in the checklist
+      const checklistItems = items.filter(item => item.checklistId === originalChecklist.id);
+      for (const item of checklistItems) {
+        const newItem = {
+          ...item,
+          id: generateId(),
+          checklistId: newChecklist.id,
+          completed: false,
+          order: item.order,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await dbOperation('items', 'add', newItem);
+        setItems(prev => [...prev, newItem]);
+        
+        // Set up reminder if due date is set
+        if (newItem.dueDate) {
+          setupReminder(newItem);
+        }
+      }
+      
+      setChecklists(prev => [...prev, newChecklist]);
+    } catch (error) {
+      console.error('Error duplicating checklist:', error);
+    }
+  };
+
+  const updateChecklist = async (checklistId, updates) => {
+    const checklist = checklists.find(cl => cl.id === checklistId);
+    if (!checklist) return;
+    
+    const updatedChecklist = {
+      ...checklist,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    
+    try {
+      await dbOperation('checklists', 'put', updatedChecklist);
+      setChecklists(prev => prev.map(cl => cl.id === checklistId ? updatedChecklist : cl));
+    } catch (error) {
+      console.error('Error updating checklist:', error);
     }
   };
 
@@ -227,6 +327,9 @@ const ChecklistApp = () => {
 
   const createOrUpdateItem = async (itemData) => {
     const isEditing = !!editingItem;
+    const checklistItems = items.filter(item => item.checklistId === selectedChecklist);
+    const maxOrder = isEditing ? editingItem.order : checklistItems.reduce((max, item) => Math.max(max, item.order || 0), 0) + 1;
+    
     const item = {
       id: isEditing ? editingItem.id : generateId(),
       checklistId: selectedChecklist,
@@ -238,6 +341,7 @@ const ChecklistApp = () => {
       reminderRepeat: itemData.reminderRepeat || 1,
       autoDismissAfter: itemData.autoDismissAfter || null,
       completed: isEditing ? editingItem.completed : false,
+      order: maxOrder,
       createdAt: isEditing ? editingItem.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -266,6 +370,16 @@ const ChecklistApp = () => {
   const toggleItemComplete = async (itemId) => {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
+    
+    // Check if item has a future due date and warn user
+    if (!item.completed && item.dueDate) {
+      const dueTime = new Date(item.dueDate);
+      const now = new Date();
+      if (dueTime > now) {
+        const confirmed = confirm(`This item isn't due until ${formatDate(item.dueDate)}. Are you sure you want to mark it complete?`);
+        if (!confirmed) return;
+      }
+    }
     
     try {
       if (!item.completed) {
@@ -332,6 +446,33 @@ const ChecklistApp = () => {
       }
     } catch (error) {
       console.error('Error deleting item:', error);
+    }
+  };
+
+  const duplicateItem = async (originalItem) => {
+    const checklistItems = items.filter(item => item.checklistId === originalItem.checklistId);
+    const maxOrder = checklistItems.reduce((max, item) => Math.max(max, item.order || 0), 0);
+    
+    const newItem = {
+      ...originalItem,
+      id: generateId(),
+      title: `${originalItem.title} (Copy)`,
+      completed: false,
+      order: maxOrder + 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    try {
+      await dbOperation('items', 'add', newItem);
+      setItems(prev => [...prev, newItem]);
+      
+      // Set up reminder if due date is set
+      if (newItem.dueDate) {
+        setupReminder(newItem);
+      }
+    } catch (error) {
+      console.error('Error duplicating item:', error);
     }
   };
 
@@ -451,6 +592,182 @@ const ChecklistApp = () => {
     };
   };
 
+  // Drag and Drop Functions
+  const handleChecklistDragStart = (e, checklist) => {
+    setDraggedChecklist(checklist);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  };
+
+  const handleChecklistDragOver = (e, targetChecklist) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverTarget(`checklist-${targetChecklist.id}`);
+  };
+
+  const handleChecklistDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverTarget(null);
+    }
+  };
+
+  const handleChecklistDrop = async (e, targetChecklist) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+    
+    if (!draggedChecklist || draggedChecklist.id === targetChecklist.id) {
+      setDraggedChecklist(null);
+      return;
+    }
+
+    const sourceIndex = checklists.findIndex(cl => cl.id === draggedChecklist.id);
+    const targetIndex = checklists.findIndex(cl => cl.id === targetChecklist.id);
+    
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    // Reorder checklists
+    const newChecklists = [...checklists];
+    const [movedChecklist] = newChecklists.splice(sourceIndex, 1);
+    newChecklists.splice(targetIndex, 0, movedChecklist);
+    
+    // Update order values
+    const updatedChecklists = newChecklists.map((checklist, index) => ({
+      ...checklist,
+      order: index + 1
+    }));
+    
+    try {
+      // Update all checklists in database
+      for (const checklist of updatedChecklists) {
+        await dbOperation('checklists', 'put', checklist);
+      }
+      
+      setChecklists(updatedChecklists);
+    } catch (error) {
+      console.error('Error reordering checklists:', error);
+    }
+    
+    setDraggedChecklist(null);
+  };
+
+  const handleItemDragStart = (e, item) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  };
+
+  const handleItemDragOver = (e, targetItem, targetChecklistId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (targetItem) {
+      setDragOverTarget(`item-${targetItem.id}`);
+    } else {
+      setDragOverTarget(`checklist-drop-${targetChecklistId}`);
+    }
+  };
+
+  const handleItemDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverTarget(null);
+    }
+  };
+
+  const handleItemDrop = async (e, targetItem, targetChecklistId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+    
+    if (!draggedItem) {
+      setDraggedItem(null);
+      return;
+    }
+
+    const sourceChecklistId = draggedItem.checklistId;
+    const finalTargetChecklistId = targetChecklistId || (targetItem ? targetItem.checklistId : sourceChecklistId);
+    
+    if (targetItem && draggedItem.id === targetItem.id) {
+      setDraggedItem(null);
+      return;
+    }
+
+    try {
+      if (sourceChecklistId !== finalTargetChecklistId) {
+        // Moving between checklists
+        const targetItems = items.filter(item => item.checklistId === finalTargetChecklistId);
+        const newOrder = targetItem 
+          ? targetItem.order 
+          : targetItems.reduce((max, item) => Math.max(max, item.order || 0), 0) + 1;
+        
+        const updatedItem = {
+          ...draggedItem,
+          checklistId: finalTargetChecklistId,
+          order: newOrder,
+          updatedAt: new Date().toISOString()
+        };
+        
+        await dbOperation('items', 'put', updatedItem);
+        setItems(prev => prev.map(item => item.id === draggedItem.id ? updatedItem : item));
+        
+        // Reorder items in target checklist if needed
+        if (targetItem) {
+          const itemsToReorder = items
+            .filter(item => item.checklistId === finalTargetChecklistId && item.id !== draggedItem.id)
+            .filter(item => item.order >= newOrder)
+            .map(item => ({ ...item, order: item.order + 1 }));
+          
+          for (const item of itemsToReorder) {
+            await dbOperation('items', 'put', item);
+          }
+          
+          setItems(prev => prev.map(item => {
+            const reordered = itemsToReorder.find(r => r.id === item.id);
+            return reordered || item;
+          }));
+        }
+      } else {
+        // Reordering within same checklist
+        const checklistItems = items.filter(item => item.checklistId === sourceChecklistId);
+        const sourceIndex = checklistItems.findIndex(item => item.id === draggedItem.id);
+        const targetIndex = targetItem ? checklistItems.findIndex(item => item.id === targetItem.id) : checklistItems.length;
+        
+        if (sourceIndex === -1 || sourceIndex === targetIndex) {
+          setDraggedItem(null);
+          return;
+        }
+        
+        // Reorder items
+        const newItems = [...checklistItems];
+        const [movedItem] = newItems.splice(sourceIndex, 1);
+        newItems.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, movedItem);
+        
+        // Update order values
+        const updatedItems = newItems.map((item, index) => ({
+          ...item,
+          order: index + 1,
+          updatedAt: new Date().toISOString()
+        }));
+        
+        // Update all items in database
+        for (const item of updatedItems) {
+          await dbOperation('items', 'put', item);
+        }
+        
+        setItems(prev => prev.map(item => {
+          const updated = updatedItems.find(u => u.id === item.id);
+          return updated || item;
+        }));
+      }
+    } catch (error) {
+      console.error('Error reordering items:', error);
+    }
+    
+    setDraggedItem(null);
+  };
+
+  const handleChecklistDropZone = (e, checklistId) => {
+    handleItemDrop(e, null, checklistId);
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -497,16 +814,32 @@ const ChecklistApp = () => {
                   const checklistItems = items.filter(item => item.checklistId === checklist.id);
                   
                   return (
-                    <div key={checklist.id} className="checklist-card">
+                    <div 
+                      key={checklist.id} 
+                      className={`checklist-card ${
+                        dragOverTarget === `checklist-${checklist.id}` ? 'drag-over' : ''
+                      }`}
+                      draggable
+                      onDragStart={(e) => handleChecklistDragStart(e, checklist)}
+                      onDragOver={(e) => handleChecklistDragOver(e, checklist)}
+                      onDragLeave={handleChecklistDragLeave}
+                      onDrop={(e) => handleChecklistDrop(e, checklist)}
+                    >
                       <div className="checklist-header">
                         <div>
-                          <h3 className="checklist-title">{checklist.name}</h3>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px'}}>
+                            <div 
+                              className="color-indicator" 
+                              style={{backgroundColor: checklist.color || '#4a9eff'}}
+                            ></div>
+                            <h3 className="checklist-title">{checklist.name}</h3>
+                          </div>
                           <div className="checklist-stats">
                             {stats.total} items • {stats.completed} completed
                             {stats.overdue > 0 && <span style={{color: 'var(--danger)'}}> • {stats.overdue} overdue</span>}
                           </div>
                         </div>
-                        <div style={{display: 'flex', gap: '10px'}}>
+                        <div className="checklist-actions">
                           <button 
                             className="btn btn-small"
                             onClick={() => {
@@ -514,8 +847,19 @@ const ChecklistApp = () => {
                               setShowNewItemModal(true);
                             }}
                           >
-                            ➕ Add Item
+                            ➕
                           </button>
+                          <button 
+                            className="btn btn-small btn-secondary"
+                            onClick={() => duplicateChecklist(checklist)}
+                            title="Duplicate Checklist"
+                          >
+                            📋
+                          </button>
+                          <ColorPicker 
+                            color={checklist.color || '#4a9eff'}
+                            onChange={(color) => updateChecklist(checklist.id, { color })}
+                          />
                           <button 
                             className="btn btn-small btn-danger"
                             onClick={() => deleteChecklist(checklist.id)}
@@ -525,10 +869,16 @@ const ChecklistApp = () => {
                         </div>
                       </div>
 
-                      <div>
+                      <div 
+                        className={`checklist-items ${dragOverTarget === `checklist-drop-${checklist.id}` ? 'drag-over-drop-zone' : ''}`}
+                        onDragOver={(e) => handleItemDragOver(e, null, checklist.id)}
+                        onDragLeave={handleItemDragLeave}
+                        onDrop={(e) => handleChecklistDropZone(e, checklist.id)}
+                      >
                         {checklistItems.length === 0 ? (
                           <div className="empty-state" style={{padding: '20px'}}>
                             <p>No items in this checklist</p>
+                            <p style={{fontSize: '0.5rem', marginTop: '5px'}}>Drop items here</p>
                           </div>
                         ) : (
                           checklistItems.map(item => (
@@ -542,6 +892,12 @@ const ChecklistApp = () => {
                                 setShowNewItemModal(true);
                               }}
                               onDelete={deleteItem}
+                              onDuplicate={duplicateItem}
+                              onDragStart={handleItemDragStart}
+                              onDragOver={handleItemDragOver}
+                              onDragLeave={handleItemDragLeave}
+                              onDrop={handleItemDrop}
+                              isDraggedOver={dragOverTarget === `item-${item.id}`}
                             />
                           ))
                         )}
@@ -580,12 +936,67 @@ const ChecklistApp = () => {
   );
 };
 
+// Color Picker Component
+const ColorPicker = ({ color, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const colors = [
+    '#4a9eff', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', 
+    '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#6366f1'
+  ];
+  
+  return (
+    <div className="color-picker">
+      <button 
+        className="color-picker-trigger"
+        style={{backgroundColor: color}}
+        onClick={() => setIsOpen(!isOpen)}
+        title="Change Color"
+      >
+        🎨
+      </button>
+      {isOpen && (
+        <div className="color-picker-dropdown">
+          {colors.map(c => (
+            <button
+              key={c}
+              className="color-option"
+              style={{backgroundColor: c}}
+              onClick={() => {
+                onChange(c);
+                setIsOpen(false);
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Checklist Item Component
-const ChecklistItem = ({ item, onToggleComplete, onEdit, onDelete }) => {
+const ChecklistItem = ({ 
+  item, 
+  onToggleComplete, 
+  onEdit, 
+  onDelete, 
+  onDuplicate, 
+  onDragStart, 
+  onDragOver, 
+  onDragLeave, 
+  onDrop, 
+  isDraggedOver 
+}) => {
   const isItemOverdue = isOverdue(item.dueDate);
   
   return (
-    <div className={`checkbox-item ${item.completed ? 'completed' : ''}`}>
+    <div 
+      className={`checkbox-item ${item.completed ? 'completed' : ''} ${isDraggedOver ? 'drag-over' : ''}`}
+      draggable
+      onDragStart={(e) => onDragStart(e, item)}
+      onDragOver={(e) => onDragOver(e, item)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, item)}
+    >
       <input 
         type="checkbox" 
         className="checkbox"
@@ -630,12 +1041,21 @@ const ChecklistItem = ({ item, onToggleComplete, onEdit, onDelete }) => {
         <button 
           className="btn btn-small btn-secondary"
           onClick={() => onEdit(item)}
+          title="Edit Item"
         >
           ✏️
         </button>
         <button 
+          className="btn btn-small btn-secondary"
+          onClick={() => onDuplicate(item)}
+          title="Duplicate Item"
+        >
+          📋
+        </button>
+        <button 
           className="btn btn-small btn-danger"
           onClick={() => onDelete(item.id)}
+          title="Delete Item"
         >
           🗑️
         </button>
@@ -705,12 +1125,14 @@ const ArchiveView = ({ archive, checklists }) => {
 // New Checklist Modal
 const NewChecklistModal = ({ onSave, onClose }) => {
   const [name, setName] = useState('');
+  const [color, setColor] = useState('#4a9eff');
   
   const handleSubmit = (e) => {
     e.preventDefault();
     if (name.trim()) {
-      onSave(name.trim());
+      onSave({ name: name.trim(), color });
       setName('');
+      setColor('#4a9eff');
     }
   };
   
@@ -734,6 +1156,11 @@ const NewChecklistModal = ({ onSave, onClose }) => {
               autoFocus
               required
             />
+          </div>
+          
+          <div className="input-group">
+            <label>Color</label>
+            <ColorPicker color={color} onChange={setColor} />
           </div>
           
           <div style={{display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
