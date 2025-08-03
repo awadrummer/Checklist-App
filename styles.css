@@ -244,6 +244,13 @@ body {
   opacity: 0.7;
 }
 
+.checkbox-item.skipped {
+  opacity: 0.6;
+  background: linear-gradient(45deg, transparent 25%, var(--warning) 25%, var(--warning) 50%, transparent 50%, transparent 75%, var(--warning) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px;
+}
+
 .checkbox {
   width: 13px;
   height: 13px;
@@ -266,6 +273,12 @@ body {
 .item-title.completed {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+.item-title.skipped {
+  text-decoration: line-through;
+  color: var(--warning);
+  font-style: italic;
 }
 
 .item-notes {
@@ -653,6 +666,28 @@ body {
 
 .sync-status:has-text('❌') {
   background: var(--danger);
+  color: white;
+}
+
+/* Snooze Modal Styles */
+.snooze-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.snooze-custom {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.snooze-custom input {
+  flex: 1;
+}
+
+.meta-tag.snoozed {
+  background: var(--warning);
   color: white;
 }
 

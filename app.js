@@ -154,6 +154,9 @@ const ChecklistApp = () => {
   const [syncPassphrase, setSyncPassphrase] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [showExportImportModal, setShowExportImportModal] = useState(false);
+  const [showSnoozeModal, setShowSnoozeModal] = useState(false);
+  const [snoozeItem, setSnoozeItem] = useState(null);
+  const [customSnoozeTime, setCustomSnoozeTime] = useState('');
 
   // Initialize app
   useEffect(() => {
@@ -378,6 +381,9 @@ const ChecklistApp = () => {
       reminderRepeat: itemData.reminderRepeat || 1,
       autoDismissAfter: itemData.autoDismissAfter || null,
       completed: isEditing ? editingItem.completed : false,
+      skipped: isEditing ? editingItem.skipped : false,
+      snoozeCount: isEditing ? editingItem.snoozeCount || 0 : 0,
+      snoozedAt: isEditing ? editingItem.snoozedAt : null,
       order: maxOrder,
       createdAt: isEditing ? editingItem.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -424,6 +430,7 @@ const ChecklistApp = () => {
         const completedItem = {
           ...item,
           completed: true,
+          skipped: false,
           completedAt: new Date().toISOString()
         };
         
@@ -452,6 +459,7 @@ const ChecklistApp = () => {
               id: generateId(),
               dueDate: nextDueDate,
               completed: false,
+              skipped: false,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
             };
@@ -464,6 +472,144 @@ const ChecklistApp = () => {
       }
     } catch (error) {
       console.error('Error toggling item complete:', error);
+    }
+  };
+
+  const skipItem = async (itemId) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    
+    try {
+      // Mark as skipped and move to archive
+      const skippedItem = {
+        ...item,
+        completed: false,
+        skipped: true,
+        skippedAt: new Date().toISOString()
+      };
+      
+      await dbOperation('archive', 'add', skippedItem);
+      await dbOperation('items', 'delete', itemId);
+      
+      setItems(prev => prev.filter(i => i.id !== itemId));
+      setArchive(prev => [...prev, skippedItem]);
+      
+      // Clear reminder
+      if (reminderIntervals[itemId]) {
+        clearInterval(reminderIntervals[itemId]);
+        setReminderIntervals(prev => {
+          const newIntervals = { ...prev };
+          delete newIntervals[itemId];
+          return newIntervals;
+        });
+      }
+      
+      // Handle repeat - create next occurrence
+      if (item.repeatFrequency !== 'none') {
+        const nextDueDate = calculateNextDueDate(item.dueDate, item.repeatFrequency, item.customInterval);
+        if (nextDueDate) {
+          const newItem = {
+            ...item,
+            id: generateId(),
+            dueDate: nextDueDate,
+            completed: false,
+            skipped: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          
+          await dbOperation('items', 'add', newItem);
+          setItems(prev => [...prev, newItem]);
+          setupReminder(newItem);
+        }
+      }
+    } catch (error) {
+      console.error('Error skipping item:', error);
+    }
+  };
+
+  const restoreItem = async (archivedItem) => {
+    try {
+      // Remove from archive
+      await dbOperation('archive', 'delete', archivedItem.id);
+      
+      // Create restored item
+      const restoredItem = {
+        ...archivedItem,
+        completed: false,
+        skipped: false,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Remove archive-specific fields
+      delete restoredItem.completedAt;
+      delete restoredItem.skippedAt;
+      
+      await dbOperation('items', 'add', restoredItem);
+      
+      setArchive(prev => prev.filter(i => i.id !== archivedItem.id));
+      setItems(prev => [...prev, restoredItem]);
+      
+      // Set up reminder if due date is set
+      if (restoredItem.dueDate) {
+        setupReminder(restoredItem);
+      }
+    } catch (error) {
+      console.error('Error restoring item:', error);
+    }
+  };
+
+  const snoozeItemReminder = async (itemId, minutes) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    
+    try {
+      // Clear existing reminder
+      if (reminderIntervals[itemId]) {
+        clearInterval(reminderIntervals[itemId]);
+        setReminderIntervals(prev => {
+          const newIntervals = { ...prev };
+          delete newIntervals[itemId];
+          return newIntervals;
+        });
+      }
+      
+      // Calculate new due date (snooze from now)
+      const newDueDate = new Date(Date.now() + (minutes * 60 * 1000)).toISOString();
+      
+      // Update item with new due date
+      const updatedItem = {
+        ...item,
+        dueDate: newDueDate,
+        snoozedAt: new Date().toISOString(),
+        snoozeCount: (item.snoozeCount || 0) + 1,
+        updatedAt: new Date().toISOString()
+      };
+      
+      await dbOperation('items', 'put', updatedItem);
+      setItems(prev => prev.map(i => i.id === itemId ? updatedItem : i));
+      
+      // Set up new reminder
+      setupReminder(updatedItem);
+      
+      setShowSnoozeModal(false);
+      setSnoozeItem(null);
+      setCustomSnoozeTime('');
+      
+    } catch (error) {
+      console.error('Error snoozing item:', error);
+    }
+  };
+
+  const openSnoozeModal = (item) => {
+    setSnoozeItem(item);
+    setShowSnoozeModal(true);
+  };
+
+  const handleCustomSnooze = () => {
+    const minutes = parseInt(customSnoozeTime);
+    if (minutes && minutes > 0 && snoozeItem) {
+      snoozeItemReminder(snoozeItem.id, minutes);
     }
   };
 
@@ -495,6 +641,7 @@ const ChecklistApp = () => {
       id: generateId(),
       title: `${originalItem.title} (Copy)`,
       completed: false,
+      skipped: false,
       order: maxOrder + 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -1193,6 +1340,8 @@ const ChecklistApp = () => {
                               key={item.id} 
                               item={item}
                               onToggleComplete={toggleItemComplete}
+                              onSkip={skipItem}
+                              onSnooze={openSnoozeModal}
                               onEdit={(item) => {
                                 setEditingItem(item);
                                 setSelectedChecklist(item.checklistId);
@@ -1218,7 +1367,11 @@ const ChecklistApp = () => {
         )}
 
         {currentView === 'archive' && (
-          <ArchiveView archive={archive} checklists={checklists} />
+          <ArchiveView 
+            archive={archive} 
+            checklists={checklists} 
+            onRestore={restoreItem}
+          />
         )}
       </div>
 
@@ -1266,6 +1419,21 @@ const ChecklistApp = () => {
           onClose={() => setShowExportImportModal(false)}
         />
       )}
+      
+      {showSnoozeModal && snoozeItem && (
+        <SnoozeModal 
+          item={snoozeItem}
+          onSnooze={snoozeItemReminder}
+          customTime={customSnoozeTime}
+          setCustomTime={setCustomSnoozeTime}
+          onCustomSnooze={handleCustomSnooze}
+          onClose={() => {
+            setShowSnoozeModal(false);
+            setSnoozeItem(null);
+            setCustomSnoozeTime('');
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -1311,6 +1479,8 @@ const ColorPicker = ({ color, onChange }) => {
 const ChecklistItem = ({ 
   item, 
   onToggleComplete, 
+  onSkip,
+  onSnooze,
   onEdit, 
   onDelete, 
   onDuplicate, 
@@ -1368,6 +1538,12 @@ const ChecklistItem = ({
               🔔 {item.reminderRepeat} reminders
             </span>
           )}
+          
+          {item.snoozeCount > 0 && (
+            <span className="meta-tag">
+              😴 Snoozed {item.snoozeCount}x
+            </span>
+          )}
         </div>
       </div>
       
@@ -1387,6 +1563,22 @@ const ChecklistItem = ({
           📋
         </button>
         <button 
+          className="btn btn-small btn-secondary"
+          onClick={() => onSkip(item.id)}
+          title="Skip Item"
+        >
+          ⏭️
+        </button>
+        {item.dueDate && (
+          <button 
+            className="btn btn-small btn-secondary"
+            onClick={() => onSnooze(item)}
+            title="Snooze Reminder"
+          >
+            😴
+          </button>
+        )}
+        <button 
           className="btn btn-small btn-danger"
           onClick={() => onDelete(item.id)}
           title="Delete Item"
@@ -1399,15 +1591,17 @@ const ChecklistItem = ({
 };
 
 // Archive View Component
-const ArchiveView = ({ archive, checklists }) => {
+const ArchiveView = ({ archive, checklists, onRestore }) => {
   const getChecklistName = (checklistId) => {
     const checklist = checklists.find(cl => cl.id === checklistId);
     return checklist ? checklist.name : 'Unknown Checklist';
   };
   
-  const sortedArchive = [...archive].sort((a, b) => 
-    new Date(b.completedAt) - new Date(a.completedAt)
-  );
+  const sortedArchive = [...archive].sort((a, b) => {
+    const aDate = new Date(a.completedAt || a.skippedAt);
+    const bDate = new Date(b.completedAt || b.skippedAt);
+    return bDate - aDate;
+  });
   
   return (
     <div>
@@ -1419,16 +1613,19 @@ const ArchiveView = ({ archive, checklists }) => {
       ) : (
         <div>
           {sortedArchive.map(item => (
-            <div key={item.id} className="checkbox-item completed">
+            <div key={item.id} className={`checkbox-item ${item.completed ? 'completed' : 'skipped'}`}>
               <input 
                 type="checkbox" 
                 className="checkbox"
-                checked={true}
-                disabled
+                checked={item.completed}
+                onChange={() => onRestore(item)}
+                title={item.completed ? 'Uncheck to restore' : 'Restore skipped item'}
               />
               
               <div className="item-content">
-                <div className="item-title completed">{item.title}</div>
+                <div className={`item-title ${item.completed ? 'completed' : 'skipped'}`}>
+                  {item.title}
+                </div>
                 
                 {item.notes && (
                   <div className="item-notes">{item.notes}</div>
@@ -1439,7 +1636,11 @@ const ArchiveView = ({ archive, checklists }) => {
                     📋 {getChecklistName(item.checklistId)}
                   </span>
                   <span className="meta-tag">
-                    ✅ Completed {formatDate(item.completedAt)}
+                    {item.completed ? (
+                      <>✅ Completed {formatDate(item.completedAt)}</>
+                    ) : (
+                      <>⏭️ Skipped {formatDate(item.skippedAt)}</>
+                    )}
                   </span>
                   {item.dueDate && (
                     <span className="meta-tag">
@@ -1447,6 +1648,16 @@ const ArchiveView = ({ archive, checklists }) => {
                     </span>
                   )}
                 </div>
+              </div>
+              
+              <div className="item-actions">
+                <button 
+                  className="btn btn-small btn-secondary"
+                  onClick={() => onRestore(item)}
+                  title="Restore to active list"
+                >
+                  ↩️
+                </button>
               </div>
             </div>
           ))}
@@ -1617,14 +1828,20 @@ const NewItemModal = ({ item, onSave, onClose }) => {
           <div className="form-row">
             <div className="input-group">
               <label>Reminder Repeats</label>
-              <input 
-                type="number" 
-                className="input"
+              <select 
+                className="select"
                 value={formData.reminderRepeat}
                 onChange={(e) => handleChange('reminderRepeat', e.target.value)}
-                min="1"
-                max="10"
-              />
+              >
+                <option value="1">Once</option>
+                <option value="2">2 times</option>
+                <option value="3">3 times</option>
+                <option value="5">5 times</option>
+                <option value="10">10 times</option>
+              </select>
+              <small style={{color: 'var(--text-muted)', fontSize: '0.45rem'}}>
+                How many reminder notifications to send
+              </small>
             </div>
             
             <div className="input-group">
@@ -1637,6 +1854,9 @@ const NewItemModal = ({ item, onSave, onClose }) => {
                 placeholder="Optional"
                 min="1"
               />
+              <small style={{color: 'var(--text-muted)', fontSize: '0.45rem'}}>
+                Auto-archive if not completed
+              </small>
             </div>
           </div>
           
@@ -1649,6 +1869,94 @@ const NewItemModal = ({ item, onSave, onClose }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// Snooze Modal Component
+const SnoozeModal = ({ item, onSnooze, customTime, setCustomTime, onCustomSnooze, onClose }) => {
+  const presetTimes = [
+    { label: '5 minutes', minutes: 5 },
+    { label: '15 minutes', minutes: 15 },
+    { label: '30 minutes', minutes: 30 },
+    { label: '1 hour', minutes: 60 },
+    { label: '2 hours', minutes: 120 },
+    { label: '4 hours', minutes: 240 }
+  ];
+  
+  return (
+    <div className="modal">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h2 className="modal-title">😴 Snooze Reminder</h2>
+          <button className="close-btn" onClick={onClose}>×</button>
+        </div>
+        
+        <div style={{marginBottom: '15px'}}>
+          <h4 style={{fontSize: '0.7rem', marginBottom: '5px', color: 'var(--text-primary)'}}>
+            {item.title}
+          </h4>
+          <p style={{fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '10px'}}>
+            Choose how long to snooze this reminder:
+          </p>
+        </div>
+        
+        <div style={{marginBottom: '15px'}}>
+          <h4 style={{fontSize: '0.65rem', marginBottom: '8px', color: 'var(--text-primary)'}}>
+            Quick Options
+          </h4>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px'}}>
+            {presetTimes.map(preset => (
+              <button 
+                key={preset.minutes}
+                className="btn btn-secondary"
+                onClick={() => onSnooze(item.id, preset.minutes)}
+                style={{fontSize: '0.55rem', padding: '6px 8px'}}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div style={{marginBottom: '15px'}}>
+          <h4 style={{fontSize: '0.65rem', marginBottom: '8px', color: 'var(--text-primary)'}}>
+            Custom Time
+          </h4>
+          <div style={{display: 'flex', gap: '6px', alignItems: 'center'}}>
+            <input 
+              type="number" 
+              className="input"
+              value={customTime}
+              onChange={(e) => setCustomTime(e.target.value)}
+              placeholder="Minutes"
+              min="1"
+              max="10080"
+              style={{flex: '1', fontSize: '0.6rem'}}
+            />
+            <span style={{fontSize: '0.55rem', color: 'var(--text-secondary)'}}>minutes</span>
+            <button 
+              className="btn"
+              onClick={onCustomSnooze}
+              disabled={!customTime || parseInt(customTime) < 1}
+              style={{fontSize: '0.55rem'}}
+            >
+              Snooze
+            </button>
+          </div>
+        </div>
+        
+        <div style={{padding: '6px', background: 'var(--bg-tertiary)', borderRadius: '4px', fontSize: '0.5rem'}}>
+          <strong>🗒️ Note:</strong><br/>
+          Snoozing will update the due time and create a new reminder.
+        </div>
+        
+        <div style={{display: 'flex', justifyContent: 'center', marginTop: '10px'}}>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
